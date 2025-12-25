@@ -1,0 +1,826 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>抓星星的小超：理想跃迁</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;700&display=swap');
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #0f0c29;
+            background: linear-gradient(to bottom, #24243e, #302b63, #0f0c29);
+            font-family: 'Noto Sans SC', sans-serif;
+            touch-action: none;
+            /* Prevent zoom/scroll on mobile */
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        #game-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        canvas {
+            display: block;
+            box-shadow: 0 0 50px rgba(0, 0, 0, 0.5);
+        }
+
+        /* UI Overlays */
+        .ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        .score-board {
+            color: #fff;
+            text-align: left;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+        }
+
+        .score-board h1 {
+            margin: 0;
+            font-size: 2.5rem;
+            color: #ffd700;
+        }
+
+        .score-board p {
+            margin: 5px 0 0;
+            font-size: 1rem;
+            opacity: 0.8;
+        }
+
+        .combo-text {
+            position: absolute;
+            top: 20%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 2rem;
+            font-weight: bold;
+            color: #00ffcc;
+            opacity: 0;
+            transition: opacity 0.3s, transform 0.3s;
+            text-shadow: 0 0 10px rgba(0, 255, 204, 0.8);
+        }
+
+        .combo-active {
+            opacity: 1;
+            transform: translate(-50%, -50%) scale(1.2);
+        }
+
+        /* Start/End Screen */
+        #menu-screen,
+        #game-over-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(15, 12, 41, 0.85);
+            backdrop-filter: blur(5px);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            z-index: 10;
+            pointer-events: auto;
+            transition: opacity 0.3s;
+        }
+
+        .hidden {
+            opacity: 0;
+            pointer-events: none !important;
+        }
+
+        h2 {
+            font-size: 2rem;
+            margin-bottom: 10px;
+            color: #ffd700;
+        }
+
+        p.subtitle {
+            font-size: 1rem;
+            max-width: 80%;
+            text-align: center;
+            color: #ddd;
+            margin-bottom: 30px;
+            line-height: 1.5;
+        }
+
+        .btn {
+            background: linear-gradient(45deg, #ff00cc, #333399);
+            border: none;
+            padding: 15px 40px;
+            color: white;
+            font-size: 1.2rem;
+            font-weight: bold;
+            border-radius: 30px;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(255, 0, 204, 0.4);
+            transition: transform 0.1s, box-shadow 0.1s;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .btn:active {
+            transform: scale(0.95);
+            box-shadow: 0 2px 8px rgba(255, 0, 204, 0.4);
+        }
+
+        /* Tutorial hint */
+        .tutorial {
+            position: absolute;
+            bottom: 100px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 0.9rem;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% {
+                opacity: 0.4;
+            }
+
+            50% {
+                opacity: 1;
+            }
+
+            100% {
+                opacity: 0.4;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="game-container">
+        <canvas id="gameCanvas" width="950" height="730"></canvas>
+
+        <div class="ui-layer">
+            <div class="score-board">
+                <h1 id="score-display">0</h1>
+                <p>理想积分</p>
+            </div>
+            <div id="combo-display" class="combo-text">完美连击! x2</div>
+            <div id="tutorial-text" class="tutorial" style="opacity: 0;">按住屏幕蓄力，松开跳跃</div>
+        </div>
+
+        <!-- Main Menu -->
+        <div id="menu-screen">
+            <h2>抓星星的小超</h2>
+            <p class="subtitle">积蓄力量，精准行动。<br>让每一个理想都落地生根。</p>
+            <button class="btn" id="start-btn">开始追梦</button>
+        </div>
+
+        <!-- Game Over Screen -->
+        <div id="game-over-screen" class="hidden">
+            <h2>继续加油!</h2>
+            <p class="subtitle" id="final-message">你在追梦路上获得了 5 分<br>这就是"小超"的积累！</p>
+            <button class="btn" id="restart-btn">再次挑战</button>
+        </div>
+    </div>
+
+    <script>
+        // --- 游戏配置与常量 ---
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // UI Elements
+        const scoreDisplay = document.getElementById('score-display');
+        const comboDisplay = document.getElementById('combo-display');
+        const menuScreen = document.getElementById('menu-screen');
+        const gameOverScreen = document.getElementById('game-over-screen');
+        const finalMessage = document.getElementById('final-message');
+        const tutorialText = document.getElementById('tutorial-text');
+
+        // 游戏状态
+        let state = {
+            score: 0,
+            highScore: 0,
+            isPlaying: false,
+            cameraOffset: 0,
+            platforms: [],
+            stars: [],
+            particles: [],
+            combo: 0
+        };
+
+        // 物理与尺寸配置
+        let CONFIG = {
+            width: window.innerWidth,
+            height: window.innerHeight,
+            gravity: 0.6,
+            groundY: window.innerHeight - 100,
+            playerSize: 40,
+            colors: {
+                player: '#00ffcc',
+                playerShadow: '#00cc99',
+                platformTop: '#ffffff',
+                platformSide: '#999999',
+                star: '#ffd700',
+                bgGradientStart: '#24243e',
+                bgGradientEnd: '#0f0c29'
+            }
+        };
+
+        // --- 音效 (使用 Web Audio API 合成简单音效，无需外部文件) ---
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+        function playSound(type) {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            osc.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+
+            const now = audioCtx.currentTime;
+
+            if (type === 'charge') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(200, now);
+                osc.frequency.linearRampToValueAtTime(400, now + 0.5);
+                gainNode.gain.setValueAtTime(0.1, now);
+                osc.start(now);
+                return { osc, gainNode }; // 返回以便停止
+            } else if (type === 'jump') {
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(300, now);
+                osc.frequency.exponentialRampToValueAtTime(600, now + 0.1);
+                gainNode.gain.setValueAtTime(0.2, now);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+                osc.start(now);
+                osc.stop(now + 0.2);
+            } else if (type === 'land') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(100, now);
+                gainNode.gain.setValueAtTime(0.3, now);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+                osc.start(now);
+                osc.stop(now + 0.1);
+            } else if (type === 'score') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(600, now);
+                osc.frequency.setValueAtTime(800, now + 0.1);
+                gainNode.gain.setValueAtTime(0.1, now);
+                gainNode.gain.linearRampToValueAtTime(0, now + 0.2);
+                osc.start(now);
+                osc.stop(now + 0.2);
+            } else if (type === 'fail') {
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(150, now);
+                osc.frequency.linearRampToValueAtTime(50, now + 0.5);
+                gainNode.gain.setValueAtTime(0.2, now);
+                gainNode.gain.linearRampToValueAtTime(0, now + 0.5);
+                osc.start(now);
+                osc.stop(now + 0.5);
+            }
+        }
+
+        // --- 类定义 ---
+
+        class Particle {
+            constructor(x, y, color) {
+                this.x = x;
+                this.y = y;
+                this.color = color;
+                this.size = Math.random() * 5 + 2;
+                this.speedX = (Math.random() - 0.5) * 6;
+                this.speedY = (Math.random() - 0.5) * 6;
+                this.life = 1.0;
+                this.decay = Math.random() * 0.03 + 0.01;
+            }
+            update() {
+                this.x += this.speedX;
+                this.y += this.speedY;
+                this.life -= this.decay;
+            }
+            draw(ctx) {
+                ctx.save();
+                ctx.globalAlpha = this.life;
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x - state.cameraOffset, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        class Platform {
+            constructor(x, width) {
+                this.x = x;
+                this.y = CONFIG.groundY;
+                this.width = width;
+                this.height = 150; // 这里的height是视觉上的柱子高度
+                this.colorBody = `hsl(${Math.random() * 60 + 200}, 60%, 50%)`; // 蓝色系随机
+                this.colorTop = '#eee';
+                this.landed = false;
+            }
+
+            draw(ctx) {
+                const drawX = this.x - state.cameraOffset;
+
+                // 绘制柱体侧面 (3D效果)
+                ctx.fillStyle = this.colorBody;
+                ctx.fillRect(drawX, this.y, this.width, this.height);
+
+                // 绘制柱体深色侧边阴影 (右侧)
+                ctx.fillStyle = 'rgba(0,0,0,0.2)';
+                ctx.fillRect(drawX + this.width, this.y + 10, 10, this.height - 10);
+
+                // 绘制顶面 (这里做一个简单的透视梯形，或者直接扁椭圆)
+                // 为了简化物理碰撞逻辑，我们视觉上画一个伪3D的顶面
+                ctx.fillStyle = this.colorTop;
+                ctx.fillRect(drawX, this.y - 20, this.width, 20);
+
+                // 顶面侧边
+                ctx.fillStyle = '#ccc';
+                ctx.beginPath();
+                ctx.moveTo(drawX + this.width, this.y - 20);
+                ctx.lineTo(drawX + this.width + 10, this.y - 10);
+                ctx.lineTo(drawX + this.width + 10, this.y + this.height); // 侧边延伸到底
+                ctx.lineTo(drawX + this.width, this.y + this.height);
+                ctx.fill();
+
+                // 中心靶心
+                ctx.fillStyle = 'rgba(255, 0, 0, 0.2)';
+                ctx.beginPath();
+                ctx.ellipse(drawX + this.width / 2, this.y - 10, 5, 2, 0, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        class Star {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.size = 10;
+                this.collected = false;
+                this.floatOffset = Math.random() * Math.PI * 2;
+            }
+
+            update() {
+                this.floatOffset += 0.05;
+            }
+
+            draw(ctx) {
+                if (this.collected) return;
+                const drawX = this.x - state.cameraOffset;
+                const floatY = this.y + Math.sin(this.floatOffset) * 5;
+
+                ctx.save();
+                ctx.translate(drawX, floatY);
+                ctx.rotate(this.floatOffset * 0.5);
+
+                // 绘制五角星
+                ctx.fillStyle = CONFIG.colors.star;
+                ctx.beginPath();
+                for (let i = 0; i < 5; i++) {
+                    ctx.lineTo(Math.cos((18 + i * 72) * 0.01745) * this.size,
+                        -Math.sin((18 + i * 72) * 0.01745) * this.size);
+                    ctx.lineTo(Math.cos((54 + i * 72) * 0.01745) * (this.size / 2),
+                        -Math.sin((54 + i * 72) * 0.01745) * (this.size / 2));
+                }
+                ctx.closePath();
+                ctx.fill();
+
+                // 发光效果
+                ctx.shadowColor = CONFIG.colors.star;
+                ctx.shadowBlur = 15;
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        class Player {
+            constructor() {
+                this.reset();
+            }
+
+            reset() {
+                this.width = CONFIG.playerSize;
+                this.height = CONFIG.playerSize;
+                this.x = 100; // 初始位置
+                this.y = CONFIG.groundY - 20 - this.height; // 在台阶上
+                this.vx = 0;
+                this.vy = 0;
+                this.isCharging = false;
+                this.chargePower = 0;
+                this.isJumping = false;
+                this.rotation = 0;
+                this.squash = 1; // 挤压因子
+            }
+
+            update() {
+                // 蓄力逻辑
+                if (this.isCharging && !this.isJumping) {
+                    if (this.chargePower < 15) {
+                        this.chargePower += 0.3;
+                        this.squash = Math.max(0.6, 1 - this.chargePower / 40); // 蓄力时变扁
+                    }
+                } else {
+                    // 恢复形状
+                    if (this.squash < 1) this.squash += 0.1;
+                    if (this.squash > 1) this.squash = 1;
+                }
+
+                // 跳跃物理
+                if (this.isJumping) {
+                    const prevY = this.y; // 记录上一帧位置，用于防穿模
+                    this.x += this.vx;
+                    this.y += this.vy;
+                    this.vy += CONFIG.gravity;
+                    this.rotation += 0.1; // 空中旋转
+
+                    // 只有下落时才检测
+                    if (this.vy > 0) {
+                        checkLanding(prevY);
+                    }
+                }
+            }
+
+            draw(ctx) {
+                const drawX = this.x - state.cameraOffset;
+                const drawY = this.y;
+
+                ctx.save();
+                ctx.translate(drawX + this.width / 2, drawY + this.height); // 底部中心为锚点
+                ctx.scale(1 + (1 - this.squash) * 0.5, this.squash); // 挤压变形
+                ctx.translate(0, -this.height);
+
+                if (this.isJumping) {
+                    ctx.translate(0, this.height / 2);
+                    ctx.rotate(this.rotation);
+                    ctx.translate(0, -this.height / 2);
+                }
+
+                // 绘制角色 (小超人方块)
+                // 身体
+                ctx.fillStyle = CONFIG.colors.player;
+                ctx.fillRect(-this.width / 2, 0, this.width, this.height);
+
+                // 眼睛 (让他看起来像个角色)
+                ctx.fillStyle = '#000';
+                ctx.beginPath();
+                if (this.isCharging) {
+                    // 蓄力时眯眼
+                    ctx.moveTo(-10, 15); ctx.lineTo(-5, 15);
+                    ctx.moveTo(5, 15); ctx.lineTo(10, 15);
+                    ctx.stroke();
+                } else {
+                    ctx.arc(-8, 12, 3, 0, Math.PI * 2);
+                    ctx.arc(8, 12, 3, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+
+                // 头顶的天线/理想之光
+                ctx.strokeStyle = '#fff';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.lineTo(0, -10);
+                ctx.stroke();
+
+                ctx.fillStyle = '#ffd700';
+                ctx.beginPath();
+                ctx.arc(0, -10, 3, 0, Math.PI * 2);
+                ctx.fill();
+
+                // 蓄力条 (仅蓄力时显示)
+                if (this.isCharging) {
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                    ctx.fillRect(-this.width / 2 - 10, -20, (this.chargePower / 15) * (this.width + 20), 5);
+                }
+
+                ctx.restore();
+            }
+        }
+
+        // --- 游戏逻辑 ---
+
+        const player = new Player();
+        let chargeSoundObj = null;
+
+        function initGame() {
+            resize();
+            state.score = 0;
+            state.combo = 0;
+            state.cameraOffset = 0;
+            state.platforms = [];
+            state.stars = [];
+            state.particles = [];
+            state.isPlaying = true;
+
+            player.reset();
+            scoreDisplay.innerText = 0;
+
+            // 初始台阶
+            addPlatform(50, 100);
+            addPlatform(250, 80);
+            addPlatform(450, 90);
+        }
+
+        function addPlatform(x, w) {
+            state.platforms.push(new Platform(x, w));
+            // 有几率生成星星
+            if (Math.random() > 0.3 && state.platforms.length > 1) {
+                state.stars.push(new Star(x + w / 2, CONFIG.groundY - 150));
+            }
+        }
+
+        function generateNextPlatform() {
+            const lastPlat = state.platforms[state.platforms.length - 1];
+            // 距离随分数增加稍微变远
+            const minGap = 100;
+            const maxGap = 250 + Math.min(state.score * 5, 150);
+            const distance = minGap + Math.random() * (maxGap - minGap);
+            const width = 60 + Math.random() * 60; // 宽度随机 60-120
+
+            addPlatform(lastPlat.x + lastPlat.width + distance, width);
+        }
+
+        function createExplosion(x, y, color, count = 10) {
+            for (let i = 0; i < count; i++) {
+                state.particles.push(new Particle(x, y, color));
+            }
+        }
+
+        function checkLanding(prevY) {
+            let landed = false;
+            let onPlatform = null;
+
+            // 玩家中心点 X
+            const pCenterX = player.x + player.width / 2;
+            // 玩家脚底 Y (当前帧)
+            const pFeetY = player.y + player.height;
+            // 玩家脚底 Y (上一帧)
+            const pPrevFeetY = (prevY !== undefined ? prevY : player.y) + player.height;
+
+            for (let plat of state.platforms) {
+                const platTop = plat.y - 20;
+                // 宽松判定：只要中心点在台阶范围内
+                if (pCenterX > plat.x && pCenterX < plat.x + plat.width) {
+                    // 穿模检测：上一帧在上方，这一帧在下方 (或者高度非常接近)
+                    if (pPrevFeetY <= platTop + 10 && pFeetY >= platTop - 10) {
+                        onPlatform = plat;
+                        landed = true;
+                        break;
+                    }
+                }
+            }
+
+            if (landed) {
+                // 成功落地
+                player.isJumping = false;
+                player.y = onPlatform.y - 20 - player.height; // 修正位置到台阶表面
+                player.vy = 0;
+                player.vx = 0;
+                player.rotation = 0;
+
+                // 落地特效
+                createExplosion(player.x + player.width / 2, player.y + player.height, '#fff', 5);
+                playSound('land');
+
+                // 计分逻辑
+                if (onPlatform !== state.platforms[state.platforms.length - 2]) {
+                    // 防止在同一个台阶原地跳刷分，只有跳到新台阶才算（这里简化逻辑，假设总是向前跳）
+                    // 实际上我们只要比较当前台阶是不是之前那个
+                    // 简单点：记录上一次落地的台阶ID，这里不做复杂了，假设每次都往右跳
+                }
+
+                // 计算中心度
+                const platCenter = onPlatform.x + onPlatform.width / 2;
+                const diff = Math.abs(pCenterX - platCenter);
+
+                let points = 1;
+                let isPerfect = false;
+
+                if (diff < 10) {
+                    isPerfect = true;
+                    state.combo++;
+                    points = 1 + state.combo; // 连击加分
+                    showCombo(true);
+                    playSound('score');
+                    createExplosion(player.x + player.width / 2, player.y, '#ffd700', 15);
+                } else {
+                    state.combo = 0;
+                    showCombo(false);
+                }
+
+                state.score += points;
+                scoreDisplay.innerText = state.score;
+
+                // 生成新路
+                if (state.platforms.indexOf(onPlatform) > state.platforms.length - 3) {
+                    generateNextPlatform();
+                }
+
+            } else if (player.y > CONFIG.height) {
+                // 掉出屏幕，失败
+                gameOver();
+            }
+        }
+
+        function checkStarCollision() {
+            const pRect = {
+                l: player.x, r: player.x + player.width,
+                t: player.y, b: player.y + player.height
+            };
+
+            state.stars.forEach(star => {
+                if (!star.collected) {
+                    // 简单的AABB碰撞
+                    if (pRect.r > star.x - 5 && pRect.l < star.x + 5 &&
+                        pRect.b > star.y - 5 && pRect.t < star.y + 5) {
+                        star.collected = true;
+                        state.score += 5; // 星星分值高
+                        scoreDisplay.innerText = state.score;
+                        playSound('score');
+                        createExplosion(star.x, star.y, '#ffd700', 8);
+
+                        // 浮动文字特效 (简化版，直接用粒子代替)
+                    }
+                }
+            });
+        }
+
+        function showCombo(active) {
+            if (active) {
+                comboDisplay.innerText = `完美连击! x${state.combo}`;
+                comboDisplay.classList.add('combo-active');
+                setTimeout(() => comboDisplay.classList.remove('combo-active'), 500);
+            }
+        }
+
+        function gameOver() {
+            state.isPlaying = false;
+            playSound('fail');
+            finalMessage.innerText = `你在追梦路上获得了 ${state.score} 分\n这就是"小超"的积累！`;
+            gameOverScreen.classList.remove('hidden');
+        }
+
+        // --- 输入处理 ---
+
+        function startCharge(e) {
+            if (!state.isPlaying || player.isJumping) return;
+            // e.preventDefault();
+            player.isCharging = true;
+            player.chargePower = 0;
+            chargeSoundObj = playSound('charge');
+            tutorialText.style.opacity = 0; // 第一次操作后隐藏教程
+        }
+
+        function endCharge(e) {
+            if (!state.isPlaying || !player.isCharging) return;
+            // e.preventDefault();
+
+            // 停止蓄力音效
+            if (chargeSoundObj) {
+                const now = audioCtx.currentTime;
+                chargeSoundObj.gainNode.gain.linearRampToValueAtTime(0, now + 0.1);
+                chargeSoundObj.osc.stop(now + 0.1);
+                chargeSoundObj = null;
+            }
+
+            player.isCharging = false;
+            player.isJumping = true;
+
+            // 计算跳跃力度
+            // X轴速度：固定向前，力度越大越远
+            // Y轴速度：向上的力
+            const power = player.chargePower;
+
+            // 这里的参数需要微调手感
+            player.vx = 4 + power * 0.8;
+            player.vy = -8 - power * 0.8;
+
+            playSound('jump');
+        }
+
+        window.addEventListener('mousedown', startCharge);
+        window.addEventListener('mouseup', endCharge);
+        window.addEventListener('touchstart', (e) => { startCharge(e); }, { passive: false });
+        window.addEventListener('touchend', (e) => { endCharge(e); }, { passive: false });
+
+        document.getElementById('start-btn').addEventListener('click', () => {
+            menuScreen.classList.add('hidden');
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            initGame();
+        });
+
+        document.getElementById('restart-btn').addEventListener('click', () => {
+            gameOverScreen.classList.add('hidden');
+            initGame();
+        });
+
+        // --- 主循环 ---
+
+        function loop() {
+            // 清空画布
+            ctx.fillStyle = CONFIG.colors.bgGradientStart;
+            // 创建背景渐变
+            const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            grad.addColorStop(0, CONFIG.colors.bgGradientStart);
+            grad.addColorStop(1, CONFIG.colors.bgGradientEnd);
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            if (state.isPlaying) {
+                // 更新逻辑
+                player.update();
+                checkStarCollision();
+
+                // 相机跟随 (让玩家保持在屏幕左侧 1/3 处)
+                let targetOffset = player.x - canvas.width / 3;
+                // 只能向右移动
+                if (targetOffset > state.cameraOffset) {
+                    state.cameraOffset += (targetOffset - state.cameraOffset) * 0.1; // 平滑跟随
+                }
+
+                state.particles.forEach((p, index) => {
+                    p.update();
+                    if (p.life <= 0) state.particles.splice(index, 1);
+                });
+
+                state.stars.forEach(s => s.update());
+            }
+
+            // 绘制层级
+
+            // 1. 远景星星 (简单的背景装饰，不随相机移动太快，视差效果)
+            ctx.fillStyle = '#ffffff';
+            for (let i = 0; i < 50; i++) {
+                // 伪随机位置
+                const sx = (i * 137) % canvas.width;
+                const sy = (i * 253) % canvas.height;
+                ctx.globalAlpha = Math.random() * 0.5 + 0.2;
+                ctx.beginPath();
+                ctx.arc(sx, sy, 1, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.globalAlpha = 1;
+
+            // 2. 游戏物体
+            state.platforms.forEach(plat => {
+                // 简单的优化：只绘制屏幕内的
+                if (plat.x - state.cameraOffset < canvas.width && plat.x - state.cameraOffset + plat.width > -100) {
+                    plat.draw(ctx);
+                }
+            });
+
+            state.stars.forEach(star => {
+                if (star.x - state.cameraOffset < canvas.width && star.x - state.cameraOffset > -50) {
+                    star.draw(ctx);
+                }
+            });
+
+            player.draw(ctx);
+
+            state.particles.forEach(p => p.draw(ctx));
+
+            requestAnimationFrame(loop);
+        }
+
+        function resize() {
+            CONFIG.width = window.innerWidth;
+            CONFIG.height = window.innerHeight;
+            canvas.width = CONFIG.width;
+            canvas.height = CONFIG.height;
+            CONFIG.groundY = CONFIG.height - 100;
+
+            // 如果正在游戏中，更新台阶Y坐标以适应屏幕
+            if (state.isPlaying) {
+                state.platforms.forEach(p => p.y = CONFIG.groundY);
+                player.y = CONFIG.groundY - 20 - player.height; // 重置玩家位置防止掉下去(简化处理)
+            }
+        }
+
+        window.addEventListener('resize', resize);
+        resize();
+        loop(); // 启动循环
+
+    </script>
+
+</body>
+
+</html>
